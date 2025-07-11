@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.pyo
+*.pdb
+*.egg-info/
+
+# 仮想環境
+venv/
+.env/
+.venv/
+ENV/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ログ・出力
+logs/
+*.log
+*.pickle
+*.pkl
+*.h5
+*.hdf5
+*.npz
+*.npy
+
+# 画像・動画
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.avi
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ビルド
+build/
+dist/
+*.egg
+*.manifest
+*.spec
+
+# その他
+.idea/
+.vscode/
+*.swp
+
+# テスト
+.coverage
+htmlcov/
+.tox/
+pytest_cache/
+
+# C/C++ビルド
+*.o
+*.obj
+*.dll
+*.lib
+*.a
+*.exp
+*.pdb
+*.mod.c
+*.mod.o
+*.mod.so
+
+# Docker
+*.pid
