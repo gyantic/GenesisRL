@@ -292,16 +292,15 @@ class Go2Env:
 
     def _get_trot_reference_angles(self):
         # サイン波でトロット歩行の目標関節角度を生成
-        amplitude = 0.5  # 振幅
-        frequency = 1.5  # 周波数[Hz]
+        amplitude = 0.2  # 振幅を小さく（0.5 → 0.2）
+        frequency = 1.0  # 周波数を下げる（1.5 → 1.0 Hz）
         # 12自由度: FR, FL, RR, RLの順で3関節ずつ
-        # FR/FL/FR/FL...の順なら、FR+RL, FL+RRが対角
-        # ここではFR, FL, RR, RLの順で3関節ずつ
+        # トロット歩行の位相: FR+RL（対角）とFL+RR（対角）が逆位相
         phase_offsets = torch.tensor([
-            0, 0, 0,         # FR
-            math.pi, math.pi, math.pi, # FL
-            math.pi, math.pi, math.pi, # RR
-            0, 0, 0          # RL
+            0, 0, 0,         # FR: 0度
+            math.pi, math.pi, math.pi, # FL: 180度（FRと逆位相）
+            math.pi, math.pi, math.pi, # RR: 180度（FRと逆位相）
+            0, 0, 0          # RL: 0度（FRと同位相）
         ], device=self.device)
         t = torch.tensor(self.time, device=self.device)
         # (num_envs, 12)の目標角度
@@ -316,5 +315,8 @@ class Go2Env:
         imitation_penalty = torch.sum((self.dof_pos - reference_angles) ** 2, dim=1)
         # 前進速度: x方向
         forward_vel = self.base_lin_vel[:, 0]
-        # 報酬 = w1*前進速度 - w2*誤差
-        return self.trot_w1 * forward_vel - self.trot_w2 * imitation_penalty
+        # 安定性報酬: 高さが適切な範囲にある場合に報酬
+        base_height = self.base_pos[:, 2]
+        height_reward = torch.exp(-torch.abs(base_height - 0.3) / 0.1)
+        # 報酬 = w1*前進速度 + 安定性報酬 - w2*誤差
+        return self.trot_w1 * forward_vel + height_reward - self.trot_w2 * imitation_penalty
