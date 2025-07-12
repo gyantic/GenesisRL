@@ -89,6 +89,13 @@ class Go2Env:
         # --- トロット報酬関数を追加 ---
         self.reward_functions["trot_imitation"] = self._reward_trot_imitation
         self.episode_sums["trot_imitation"] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
+        # trot_imitationのスケールも追加（デフォルト値1.0）
+        if "trot_imitation" not in self.reward_scales:
+            self.reward_scales["trot_imitation"] = 1.0 * self.dt
+        # trot_imitationのスケールも追加
+        if "trot_imitation" not in self.reward_scales:
+            self.reward_scales["trot_imitation"] = 0.0
+        self.reward_scales["trot_imitation"] *= self.dt
 
         # initialize buffers
         self.base_lin_vel = torch.zeros((self.num_envs, 3), device=gs.device, dtype=gs.tc_float)

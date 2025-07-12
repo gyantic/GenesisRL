@@ -33,7 +33,10 @@ def main():
 
     log_dir = f"logs/{args.exp_name}"
     env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg = pickle.load(open(f"logs/{args.exp_name}/cfgs.pkl", "rb"))
-    reward_cfg["reward_scales"] = {}
+    # evalでは報酬スケールを0に設定（報酬計算を無効化）
+    reward_cfg["reward_scales"] = {
+        "trot_imitation": 0.0  # トロット報酬も0に設定
+    }
 
     env = Go2Env(
         num_envs=1,

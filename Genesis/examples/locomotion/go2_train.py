@@ -128,16 +128,16 @@ def get_cfgs():
         "base_height_target": 0.3,
         "feet_height_target": 0.075,
         "reward_scales": {
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.2,
-            "lin_vel_z": -1.0,
-            "base_height": -50.0,
-            "action_rate": -0.005,
-            "similar_to_default": -0.1,
-            "trot_imitation": 1.0,  # トロット報酬を追加
+            "tracking_lin_vel": 0.5,      # 速度追従を弱める
+            "tracking_ang_vel": 0.1,
+            "lin_vel_z": -0.5,            # Z方向ペナルティを弱める
+            "base_height": -10.0,          # 高さペナルティを弱める
+            "action_rate": -0.001,         # アクション変化ペナルティを弱める
+            "similar_to_default": -0.01,   # デフォルト姿勢ペナルティを弱める
+            "trot_imitation": 2.0,         # トロット報酬を強化
         },
-        "trot_w1": 1.0,  # 前進速度の重み
-        "trot_w2": 1.0,  # お手本誤差の重み
+        "trot_w1": 5.0,   # 前進速度の重みを増加
+        "trot_w2": 0.1,   # 誤差ペナルティを大幅に減少
     }
     command_cfg = {
         "num_commands": 3,
