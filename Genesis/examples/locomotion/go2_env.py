@@ -86,6 +86,9 @@ class Go2Env:
             self.reward_scales[name] *= self.dt
             self.reward_functions[name] = getattr(self, "_reward_" + name)
             self.episode_sums[name] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
+        # --- トロット報酬関数を追加 ---
+        self.reward_functions["trot_imitation"] = self._reward_trot_imitation
+        self.episode_sums["trot_imitation"] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
 
         # initialize buffers
         self.base_lin_vel = torch.zeros((self.num_envs, 3), device=gs.device, dtype=gs.tc_float)
@@ -118,6 +121,12 @@ class Go2Env:
         )
         self.extras = dict()  # extra information for logging
         self.extras["observations"] = dict()
+        # --- ここからトロット用 ---
+        self.time = 0.0  # 経過時間を管理
+        # トロット報酬の重み（必要に応じてenv_cfgやreward_cfgに移動可）
+        self.trot_w1 = reward_cfg.get("trot_w1", 1.0)  # 前進速度の重み
+        self.trot_w2 = reward_cfg.get("trot_w2", 1.0)  # お手本誤差の重み
+        # --- ここまでトロット用 ---
 
     def _resample_commands(self, envs_idx):
         self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), gs.device)
@@ -130,6 +139,9 @@ class Go2Env:
         target_dof_pos = exec_actions * self.env_cfg["action_scale"] + self.default_dof_pos
         self.robot.control_dofs_position(target_dof_pos, self.motors_dof_idx)
         self.scene.step()
+
+        # --- トロット用: 時間を進める ---
+        self.time += self.dt
 
         # update buffers
         self.episode_length_buf += 1
@@ -270,3 +282,32 @@ class Go2Env:
     def _reward_base_height(self):
         # Penalize base height away from target
         return torch.square(self.base_pos[:, 2] - self.reward_cfg["base_height_target"])
+
+    def _get_trot_reference_angles(self):
+        # サイン波でトロット歩行の目標関節角度を生成
+        amplitude = 0.5  # 振幅
+        frequency = 1.5  # 周波数[Hz]
+        # 12自由度: FR, FL, RR, RLの順で3関節ずつ
+        # FR/FL/FR/FL...の順なら、FR+RL, FL+RRが対角
+        # ここではFR, FL, RR, RLの順で3関節ずつ
+        phase_offsets = torch.tensor([
+            0, 0, 0,         # FR
+            math.pi, math.pi, math.pi, # FL
+            math.pi, math.pi, math.pi, # RR
+            0, 0, 0          # RL
+        ], device=self.device)
+        t = torch.tensor(self.time, device=self.device)
+        # (num_envs, 12)の目標角度
+        trot_ref = amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+        # 複数環境対応
+        return trot_ref.repeat(self.num_envs, 1)
+
+    def _reward_trot_imitation(self):
+        # お手本（サイン波）との誤差をペナルティ
+        reference_angles = self._get_trot_reference_angles()
+        # 実際の関節角度: self.dof_pos (num_envs, 12)
+        imitation_penalty = torch.sum((self.dof_pos - reference_angles) ** 2, dim=1)
+        # 前進速度: x方向
+        forward_vel = self.base_lin_vel[:, 0]
+        # 報酬 = w1*前進速度 - w2*誤差
+        return self.trot_w1 * forward_vel - self.trot_w2 * imitation_penalty
