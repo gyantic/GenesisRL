@@ -58,7 +58,6 @@ pytest_cache/
 
 # C/C++ビルド
 *.o
-*.obj
 *.dll
 *.lib
 *.a

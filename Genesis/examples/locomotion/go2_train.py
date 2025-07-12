@@ -3,7 +3,7 @@ import os
 import pickle
 import shutil
 from importlib import metadata
-
+"""
 try:
     try:
         if metadata.version("rsl-rl"):
@@ -13,6 +13,7 @@ try:
             raise ImportError
 except (metadata.PackageNotFoundError, ImportError) as e:
     raise ImportError("Please uninstall 'rsl_rl' and install 'rsl-rl-lib==2.2.4'.") from e
+"""
 from rsl_rl.runners import OnPolicyRunner
 
 import genesis as gs
@@ -133,7 +134,10 @@ def get_cfgs():
             "base_height": -50.0,
             "action_rate": -0.005,
             "similar_to_default": -0.1,
+            "trot_imitation": 1.0,  # トロット報酬を追加
         },
+        "trot_w1": 1.0,  # 前進速度の重み
+        "trot_w2": 1.0,  # お手本誤差の重み
     }
     command_cfg = {
         "num_commands": 3,
