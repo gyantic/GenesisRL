@@ -63,7 +63,7 @@ def main():
             step_count += 1
             env.cam.render()
 
-    env.cam.stop_recording(save_to_filename="video_eval.mp4", fps=30)
+    env.cam.stop_recording(save_to_filename="video_eval_trot.mp4", fps=30)
 
 
 if __name__ == "__main__":

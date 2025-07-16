@@ -133,7 +133,13 @@ class Go2Env:
         # トロット報酬の重み（必要に応じてenv_cfgやreward_cfgに移動可）
         self.trot_w1 = reward_cfg.get("trot_w1", 1.0)  # 前進速度の重み
         self.trot_w2 = reward_cfg.get("trot_w2", 1.0)  # お手本誤差の重み
-        # --- ここまでトロット用 ---
+        self.pace_w1 = reward_cfg.get("pace_w1", 1.0)
+        self.pace_w2 = reward_cfg.get("pace_w2", 1.0)
+        self.bound_w1 = reward_cfg.get("bound_w1", 1.0)
+        self.bound_w2 = reward_cfg.get("bound_w2", 1.0)
+        self.gallop_w1 = reward_cfg.get("gallop_w1", 1.0)
+        self.gallop_w2 = reward_cfg.get("gallop_w2", 1.0)
+        # --- ここまで歩行調整報酬用 ---
 
     def _resample_commands(self, envs_idx):
         self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), gs.device)
@@ -320,3 +326,62 @@ class Go2Env:
         height_reward = torch.exp(-torch.abs(base_height - 0.3) / 0.1)
         # 報酬 = w1*前進速度 + 安定性報酬 - w2*誤差
         return self.trot_w1 * forward_vel + height_reward - self.trot_w2 * imitation_penalty
+
+    def _get_pace_reference_angles(self):
+        #パース：同側が同時に動く 坂道
+        amplitude = 0.2
+        frequency = 1.0
+        phase_offsets = torch.tensor([
+            0, 0, 0,         # FR: 0度
+            0, 0,0 # FL: 180度（
+            math.pi, math.pi, math.pi, # RR
+            math.pi, math.pi, math.pi, # RL
+            0, 0, 0
+        ], device=self.device)
+        t = torch.tensor(self.time, device=self.device)
+        return amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+
+    def _reward_pace_imitation(self):
+        reference_angles = self._get_pace_reference_angles()
+        imitation_penalty = torch.sum((self.dof_pos - reference_angles) ** 2, dim = 1)
+        forward_vel = self.base_lin_vel[:, 0] #前進速度
+        height_reward = torch.exp(-torch.abs(self.base_pos[:, 2] - 0.3) / 0.1) #安定性報酬
+        return self.pace_w1 * forward_vel + height_reward - self.pace_w2 * imitation_penalty
+
+    def _get_gallop_reference_angles(self):
+        amplitude = 0.2
+        frequency = 1.0
+        phase_offsets = torch.tensor([
+            0, 0, 0,         # FR: 0度
+            0, 0, 0,
+            math.pi, math.pi, math.pi,
+            math.pi, math.pi, math.pi,
+        ], device=self.device)
+        t = torch.tensor(self.time, device=self.device)
+        return amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+
+    def _reward_gallop_imitation(self):
+        reference_angles = self._get_gallop_reference_angles()
+        imitation_penalty = torch.sum((self.dof_pos - reference_angles) ** 2, dim = 1)
+        forward_vel = self.base_lin_vel[:, 0] #前進速度
+        height_reward = torch.exp(-torch.abs(self.base_pos[:, 2] - 0.3) / 0.1) #安定性報酬
+        return self.gallop_w1 * forward_vel + height_reward - self.gallop_w2 * imitation_penalty
+
+    def _get_bound_reference_angles(self):
+        amplitude = 0.2
+        frequency = 1.0
+        phase_offsets = torch.tensor([
+            0, 0, 0,
+            0, 0, 0,
+            math.pi, math.pi, math.pi,
+            math.pi, math.pi, math.pi,
+        ], device = self.device)
+        t = torch.tensor(self.time, device = self.device)
+        return amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+
+    def _reward_bound_imitation(self):
+        reference_angles = self._get_bound_reference_angles()
+        imitation_penalty = torch.sum((self.dof_pos - reference_angles) ** 2, dim = 1)
+        forward_vel = self.base_lin_vel[:, 0] #前進速度
+        height_reward = torch.exp(-torch.abs(self.base_pos[:, 2] - 0.3) / 0.1) #安定性報酬
+        return self.bound_w1 * forward_vel + height_reward - self.bound_w2 * imitation_penalty

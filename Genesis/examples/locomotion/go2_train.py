@@ -154,6 +154,7 @@ def main():
     parser.add_argument("-e", "--exp_name", type=str, default="go2-walking")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
     parser.add_argument("--max_iterations", type=int, default=101)
+    parser.add_argument("--imitations", type=str, default="trot", help="カンマ区切りで模倣報酬名を指定（例: trot,pace）")
     args = parser.parse_args()
 
     gs.init(logging_level="warning")
@@ -171,8 +172,12 @@ def main():
         open(f"{log_dir}/cfgs.pkl", "wb"),
     )
 
+    # 追加: imitation_modesをリストで渡す
+    imitation_modes = [s.strip() for s in args.imitations.split(",") if s.strip()]
+
     env = Go2Env(
-        num_envs=args.num_envs, env_cfg=env_cfg, obs_cfg=obs_cfg, reward_cfg=reward_cfg, command_cfg=command_cfg
+        num_envs=args.num_envs, env_cfg=env_cfg, obs_cfg=obs_cfg, reward_cfg=reward_cfg, command_cfg=command_cfg,
+        imitation_modes=imitation_modes
     )
 
     runner = OnPolicyRunner(env, train_cfg, log_dir, device=gs.device)
