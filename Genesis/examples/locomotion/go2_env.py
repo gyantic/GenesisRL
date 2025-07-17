@@ -9,7 +9,10 @@ def gs_rand_float(lower, upper, shape, device):
 
 
 class Go2Env:
-    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, show_viewer=False):
+    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, show_viewer=False, imitation_modes=None):
+        if imitation_modes is None:
+            imitation_modes = ["trot"]
+        self.imitation_modes = imitation_modes
         self.num_envs = num_envs
         self.num_obs = obs_cfg["num_obs"]
         self.num_privileged_obs = None
@@ -193,10 +196,13 @@ class Go2Env:
 
         # compute reward
         self.rew_buf[:] = 0.0
-        for name, reward_func in self.reward_functions.items():
-            rew = reward_func() * self.reward_scales[name]
-            self.rew_buf += rew
-            self.episode_sums[name] += rew
+        # imitation_modesで指定された模倣報酬をすべて加算
+        for imitation in self.imitation_modes:
+            key = f"{imitation}_imitation"
+            if key in self.reward_functions:
+                rew = self.reward_functions[key]() * self.reward_scales.get(key, 1.0)
+                self.rew_buf += rew
+                self.episode_sums[key] += rew
 
         # compute observations
         self.obs_buf = torch.cat(
@@ -333,7 +339,7 @@ class Go2Env:
         frequency = 1.0
         phase_offsets = torch.tensor([
             0, 0, 0,         # FR: 0度
-            0, 0,0 # FL: 180度（
+            0, 0, 0, # FL: 180度（
             math.pi, math.pi, math.pi, # RR
             math.pi, math.pi, math.pi, # RL
             0, 0, 0
