@@ -153,7 +153,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="go2-walking")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
-    parser.add_argument("--max_iterations", type=int, default=101)
+    parser.add_argument("--max_iterations", type=int, default=501)
     parser.add_argument("--imitations", type=str, default="trot", help="カンマ区切りで模倣報酬名を指定（例: trot,pace）")
     args = parser.parse_args()
 
