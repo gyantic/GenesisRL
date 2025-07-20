@@ -355,7 +355,7 @@ class Go2Env:
         return self.pace_w1 * forward_vel + height_reward - self.pace_w2 * imitation_penalty
 
     def _get_gallop_reference_angles(self):
-        amplitude = 0.05
+        amplitude = 0.2
         frequency = 1.0
         delta = 0.3
         # ギャロップ: 前脚（FR, FL）: 0度, 後脚（RR, RL）: π
