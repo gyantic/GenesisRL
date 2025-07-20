@@ -334,18 +334,18 @@ class Go2Env:
         return self.trot_w1 * forward_vel + height_reward - self.trot_w2 * imitation_penalty
 
     def _get_pace_reference_angles(self):
-        #パース：同側が同時に動く 坂道
+        # パース：同側が同時に動く
         amplitude = 0.2
         frequency = 1.0
         phase_offsets = torch.tensor([
-            0, 0, 0,         # FR: 0度
-            0, 0, 0, # FL: 180度（
-            math.pi, math.pi, math.pi, # RR
-            math.pi, math.pi, math.pi, # RL
-            0, 0, 0
+            0, 0, 0,             # FR: 0度
+            math.pi, math.pi, math.pi, # FL: 180度
+            0, 0, 0,             # RR: 0度
+            math.pi, math.pi, math.pi  # RL: 180度
         ], device=self.device)
         t = torch.tensor(self.time, device=self.device)
-        return amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+        pace_ref = amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+        return pace_ref.repeat(self.num_envs, 1)
 
     def _reward_pace_imitation(self):
         reference_angles = self._get_pace_reference_angles()
@@ -357,14 +357,16 @@ class Go2Env:
     def _get_gallop_reference_angles(self):
         amplitude = 0.2
         frequency = 1.0
+        # ギャロップ: 前脚（FR, FL）: 0度, 後脚（RR, RL）: π
         phase_offsets = torch.tensor([
-            0, 0, 0,         # FR: 0度
-            0, 0, 0,
-            math.pi, math.pi, math.pi,
-            math.pi, math.pi, math.pi,
+            0, 0, 0,             # FR: 0度
+            0, 0, 0,             # FL: 0度
+            math.pi, math.pi, math.pi, # RR: 180度
+            math.pi, math.pi, math.pi  # RL: 180度
         ], device=self.device)
         t = torch.tensor(self.time, device=self.device)
-        return amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+        gallop_ref = amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+        return gallop_ref.repeat(self.num_envs, 1)
 
     def _reward_gallop_imitation(self):
         reference_angles = self._get_gallop_reference_angles()
@@ -376,14 +378,16 @@ class Go2Env:
     def _get_bound_reference_angles(self):
         amplitude = 0.2
         frequency = 1.0
+        # バウンド: 前脚（FR, FL）: 0度, 後脚（RR, RL）: π
         phase_offsets = torch.tensor([
-            0, 0, 0,
-            0, 0, 0,
-            math.pi, math.pi, math.pi,
-            math.pi, math.pi, math.pi,
-        ], device = self.device)
-        t = torch.tensor(self.time, device = self.device)
-        return amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+            0, 0, 0,             # FR: 0度
+            0, 0, 0,             # FL: 0度
+            math.pi, math.pi, math.pi, # RR: 180度
+            math.pi, math.pi, math.pi  # RL: 180度
+        ], device=self.device)
+        t = torch.tensor(self.time, device=self.device)
+        bound_ref = amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+        return bound_ref.repeat(self.num_envs, 1)
 
     def _reward_bound_imitation(self):
         reference_angles = self._get_bound_reference_angles()
