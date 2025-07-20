@@ -140,8 +140,8 @@ class Go2Env:
         self.pace_w2 = reward_cfg.get("pace_w2", 1.0)
         self.bound_w1 = reward_cfg.get("bound_w1", 1.0)
         self.bound_w2 = reward_cfg.get("bound_w2", 1.0)
-        self.gallop_w1 = reward_cfg.get("gallop_w1", 1.0)
-        self.gallop_w2 = reward_cfg.get("gallop_w2", 1.0)
+        self.gallop_w1 = reward_cfg.get("gallop_w1", 5.0)
+        self.gallop_w2 = reward_cfg.get("gallop_w2", 0.05)
         # --- ここまで歩行調整報酬用 ---
 
     def _resample_commands(self, envs_idx):
@@ -355,7 +355,7 @@ class Go2Env:
         return self.pace_w1 * forward_vel + height_reward - self.pace_w2 * imitation_penalty
 
     def _get_gallop_reference_angles(self):
-        amplitude = 0.2
+        amplitude = 0.05
         frequency = 1.0
         # ギャロップ: 前脚（FR, FL）: 0度, 後脚（RR, RL）: π
         phase_offsets = torch.tensor([
