@@ -89,6 +89,7 @@ class Go2Env:
             self.reward_scales[name] *= self.dt
             self.reward_functions[name] = getattr(self, "_reward_" + name)
             self.episode_sums[name] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
+
         # --- トロット報酬関数を追加 ---
         self.reward_functions["trot_imitation"] = self._reward_trot_imitation
         self.episode_sums["trot_imitation"] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
@@ -99,6 +100,17 @@ class Go2Env:
         if "trot_imitation" not in self.reward_scales:
             self.reward_scales["trot_imitation"] = 0.0
         self.reward_scales["trot_imitation"] *= self.dt
+
+        # --- ペース報酬関数を追加 ---
+        self.reward_functions["pace_imitation"] = self._reward_pace_imitation
+        self.episode_sums["pace_imitation"] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
+        # trot_imitationのスケールも追加（デフォルト値1.0）
+        if "pace_imitation" not in self.reward_scales:
+            self.reward_scales["pace_imitation"] = 1.0 * self.dt
+        # trot_imitationのスケールも追加
+        if "pace_imitation" not in self.reward_scales:
+            self.reward_scales["trot_imitation"] = 0.0
+        self.reward_scales["pace_imitation"] *= self.dt
 
         # initialize buffers
         self.base_lin_vel = torch.zeros((self.num_envs, 3), device=gs.device, dtype=gs.tc_float)
@@ -201,7 +213,7 @@ class Go2Env:
             key = f"{imitation}_imitation"
             if key in self.reward_functions:
                 rew = self.reward_functions[key]() * self.reward_scales.get(key, 1.0)
-                self.rew_buf += rew
+            self.rew_buf += rew
                 self.episode_sums[key] += rew
 
         # compute observations
@@ -355,14 +367,15 @@ class Go2Env:
         return self.pace_w1 * forward_vel + height_reward - self.pace_w2 * imitation_penalty
 
     def _get_gallop_reference_angles(self):
-        amplitude = 0.2
+        amplitude = 0.05
         frequency = 1.0
+        delta = 0.95
         # ギャロップ: 前脚（FR, FL）: 0度, 後脚（RR, RL）: π
         phase_offsets = torch.tensor([
             0, 0, 0,             # FR: 0度
             0, 0, 0,             # FL: 0度
-            math.pi, math.pi, math.pi, # RR: 180度
-            math.pi, math.pi, math.pi # RL: 180度
+            math.pi + delta, math.pi + delta, math.pi + delta, # RR: 180度
+            math.pi + delta, math.pi + delta, math.pi + delta # RL: 180度
         ], device=self.device)
         t = torch.tensor(self.time, device=self.device)
         gallop_ref = amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)

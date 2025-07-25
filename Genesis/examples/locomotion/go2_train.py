@@ -135,9 +135,12 @@ def get_cfgs():
             "action_rate": -0.001,         # アクション変化ペナルティを弱める
             "similar_to_default": -0.01,   # デフォルト姿勢ペナルティを弱める
             "trot_imitation": 2.0,         # トロット報酬を強化
+            "pace_imitation": 2.0,         # ペース報酬を強化
         },
         "trot_w1": 5.0,   # 前進速度の重みを増加
         "trot_w2": 0.1,   # 誤差ペナルティを大幅に減少
+        "pace_w1": 5.0,   # 前進速度の重みを増加
+        "pace_w2": 0.1,   # 誤差ペナルティを大幅に減少
     }
     command_cfg = {
         "num_commands": 3,
