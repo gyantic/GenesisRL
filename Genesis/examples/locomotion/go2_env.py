@@ -53,10 +53,35 @@ class Go2Env:
 
         # add plain
         self.scene.add_entity(gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
+        platform_urdf_path = "urdf/terrain/platform.urdf"
+
+        self.scene.add_entity(gs.morphs.URDF(
+            file=platform_urdf_path,
+            pos=(0, 0, 0.0),
+            quat=(0, 0, 0, 1),       # 回転なし
+            fixed=True,
+        ))
+
+        # 坂道
+        self.scene.add_entity(gs.morphs.URDF(
+            file=platform_urdf_path,
+            pos=(5.0, 0, 0.5),       # 坂の中心位置
+            quat=(0, -0.0998, 0, 0.995), # Y軸周りに-11.5度傾ける回転
+            fixed=True,
+        ))
+
+        # 【3. ゴールの平地】
+        self.scene.add_entity(gs.morphs.URDF(
+            file=platform_urdf_path,
+            pos=(10.0, 0, 1.0),      # ゴールの平地の位置
+            quat=(0, 0, 0, 1),       # 回転なし
+            fixed=True,
+        ))
 
         # add robot
         self.base_init_pos = torch.tensor(self.env_cfg["base_init_pos"], device=gs.device)
         self.base_init_quat = torch.tensor(self.env_cfg["base_init_quat"], device=gs.device)
+        self.base_euler = torch.zeros((self.num_envs, 3), device=gs.device, dtype=gs.tc_float)
         self.inv_base_init_quat = inv_quat(self.base_init_quat)
         self.robot = self.scene.add_entity(
             gs.morphs.URDF(
@@ -195,6 +220,11 @@ class Go2Env:
         )
         self._resample_commands(envs_idx)
 
+        if self.num_envs == 1 and self.episode_length_buf[0] > 10: # 評価時のみ、最初の数ステップは無視
+            pitch_angle = self.base_euler[0, 1].item()
+            pitch_limit = self.env_cfg["termination_if_pitch_greater_than"]
+            print(f"DEBUG: Current Pitch = {pitch_angle:.2f}, Pitch Limit in Env = {pitch_limit}")
+
         # check termination and reset
         self.reset_buf = self.episode_length_buf > self.max_episode_length
         self.reset_buf |= torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
@@ -214,7 +244,7 @@ class Go2Env:
             if key in self.reward_functions:
                 rew = self.reward_functions[key]() * self.reward_scales.get(key, 1.0)
             self.rew_buf += rew
-                self.episode_sums[key] += rew
+            self.episode_sums[key] += rew
 
         # compute observations
         self.obs_buf = torch.cat(
@@ -233,6 +263,14 @@ class Go2Env:
         self.last_dof_vel[:] = self.dof_vel[:]
 
         self.extras["observations"]["critic"] = self.obs_buf
+
+        if self.scene.viewer is not None:
+            robot_pos = self.base_pos[0].cpu().numpy()
+            #カメラの位置と注視点をロボットに追随
+            camera_pos = [robot_pos[0] - 3.0, robot_pos[1], robot_pos[2] + 2.0]
+            camera_lookat = [robot_pos[0], robot_pos[1], robot_pos[2]]
+            #かめら設定を更新する
+            self.scene.viewer.set_camera(pos=camera_pos, lookat=camera_lookat)
 
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
 
@@ -262,6 +300,11 @@ class Go2Env:
         self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
         self.robot.set_pos(self.base_pos[envs_idx], zero_velocity=False, envs_idx=envs_idx)
         self.robot.set_quat(self.base_quat[envs_idx], zero_velocity=False, envs_idx=envs_idx)
+        self.base_euler[envs_idx] = quat_to_xyz(
+            transform_quat_by_quat(torch.ones_like(self.base_quat[envs_idx]) * self.inv_base_init_quat, self.base_quat[envs_idx]),
+            rpy=True,
+            degrees=True,
+        )
         self.base_lin_vel[envs_idx] = 0
         self.base_ang_vel[envs_idx] = 0
         self.robot.zero_all_dofs_velocity(envs_idx)

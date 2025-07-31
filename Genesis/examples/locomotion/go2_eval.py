@@ -34,6 +34,8 @@ def main():
 
     log_dir = f"logs/{args.exp_name}"
     env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg = pickle.load(open(f"logs/{args.exp_name}/cfgs.pkl", "rb"))
+    env_cfg["termination_if_pitch_greater_than"] = 30.0
+    
     # 指定されたimitationのみ報酬スケールを0.0に
     imitation_modes = [s.strip() for s in args.imitations.split(",") if s.strip()]
     reward_cfg["reward_scales"] = {f"{imit}_imitation": 0.0 for imit in imitation_modes}
