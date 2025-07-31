@@ -27,13 +27,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="go2-walking")
     parser.add_argument("--ckpt", type=int, default=100)
+    parser.add_argument("--imitations", type=str, default="trot", help="カンマ区切りで模倣報酬名を指定（例: trot,pace）")
     args = parser.parse_args()
 
     gs.init(backend=gs.cpu)
 
     log_dir = f"logs/{args.exp_name}"
     env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg = pickle.load(open(f"logs/{args.exp_name}/cfgs.pkl", "rb"))
-    reward_cfg["reward_scales"] = {}
+    env_cfg["termination_if_pitch_greater_than"] = 30.0
+    
+    # 指定されたimitationのみ報酬スケールを0.0に
+    imitation_modes = [s.strip() for s in args.imitations.split(",") if s.strip()]
+    reward_cfg["reward_scales"] = {f"{imit}_imitation": 0.0 for imit in imitation_modes}
 
     env = Go2Env(
         num_envs=1,
@@ -42,6 +47,7 @@ def main():
         reward_cfg=reward_cfg,
         command_cfg=command_cfg,
         show_viewer=False,
+        imitation_modes=imitation_modes
     )
 
     runner = OnPolicyRunner(env, train_cfg, log_dir)
@@ -60,7 +66,9 @@ def main():
             step_count += 1
             env.cam.render()
 
-    env.cam.stop_recording(save_to_filename="video_eval.mp4", fps=30)
+    # 動画ファイル名に実験名を含める
+    video_filename = f"video_eval_{args.exp_name}.mp4"
+    env.cam.stop_recording(save_to_filename=video_filename, fps=30)
 
 
 if __name__ == "__main__":

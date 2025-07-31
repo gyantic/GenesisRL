@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<robot name="platform">
+  <link name="link">
+    <collision>
+      <geometry>
+        <box size="5 4 0.1" /> </geometry>
+    </collision>
+    <visual>
+      <geometry>
+        <box size="5 4 0.1" />
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+</robot>

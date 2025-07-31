@@ -3,7 +3,7 @@ import os
 import pickle
 import shutil
 from importlib import metadata
-
+"""
 try:
     try:
         if metadata.version("rsl-rl"):
@@ -13,6 +13,7 @@ try:
             raise ImportError
 except (metadata.PackageNotFoundError, ImportError) as e:
     raise ImportError("Please uninstall 'rsl_rl' and install 'rsl-rl-lib==2.2.4'.") from e
+"""
 from rsl_rl.runners import OnPolicyRunner
 
 import genesis as gs
@@ -127,13 +128,19 @@ def get_cfgs():
         "base_height_target": 0.3,
         "feet_height_target": 0.075,
         "reward_scales": {
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.2,
-            "lin_vel_z": -1.0,
-            "base_height": -50.0,
-            "action_rate": -0.005,
-            "similar_to_default": -0.1,
+            "tracking_lin_vel": 0.5,      # 速度追従を弱める
+            "tracking_ang_vel": 0.1,
+            "lin_vel_z": -0.5,            # Z方向ペナルティを弱める
+            "base_height": -10.0,          # 高さペナルティを弱める
+            "action_rate": -0.001,         # アクション変化ペナルティを弱める
+            "similar_to_default": -0.01,   # デフォルト姿勢ペナルティを弱める
+            "trot_imitation": 2.0,         # トロット報酬を強化
+            "pace_imitation": 2.0,         # ペース報酬を強化
         },
+        "trot_w1": 5.0,   # 前進速度の重みを増加
+        "trot_w2": 0.1,   # 誤差ペナルティを大幅に減少
+        "pace_w1": 5.0,   # 前進速度の重みを増加
+        "pace_w2": 0.1,   # 誤差ペナルティを大幅に減少
     }
     command_cfg = {
         "num_commands": 3,
@@ -149,7 +156,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="go2-walking")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
-    parser.add_argument("--max_iterations", type=int, default=101)
+    parser.add_argument("--max_iterations", type=int, default=501)
+    parser.add_argument("--imitations", type=str, default="trot", help="カンマ区切りで模倣報酬名を指定（例: trot,pace）")
     args = parser.parse_args()
 
     gs.init(logging_level="warning")
@@ -167,8 +175,12 @@ def main():
         open(f"{log_dir}/cfgs.pkl", "wb"),
     )
 
+    # 追加: imitation_modesをリストで渡す
+    imitation_modes = [s.strip() for s in args.imitations.split(",") if s.strip()]
+
     env = Go2Env(
-        num_envs=args.num_envs, env_cfg=env_cfg, obs_cfg=obs_cfg, reward_cfg=reward_cfg, command_cfg=command_cfg
+        num_envs=args.num_envs, env_cfg=env_cfg, obs_cfg=obs_cfg, reward_cfg=reward_cfg, command_cfg=command_cfg,
+        imitation_modes=imitation_modes
     )
 
     runner = OnPolicyRunner(env, train_cfg, log_dir, device=gs.device)

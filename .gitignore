@@ -9,9 +9,7 @@ __pycache__/
 
 # 仮想環境
 venv/
-.env/
 .venv/
-ENV/
 
 # OS
 .DS_Store
@@ -58,7 +56,6 @@ pytest_cache/
 
 # C/C++ビルド
 *.o
-*.obj
 *.dll
 *.lib
 *.a

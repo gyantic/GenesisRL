@@ -9,7 +9,10 @@ def gs_rand_float(lower, upper, shape, device):
 
 
 class Go2Env:
-    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, show_viewer=False):
+    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, show_viewer=False, imitation_modes=None):
+        if imitation_modes is None:
+            imitation_modes = ["trot"]
+        self.imitation_modes = imitation_modes
         self.num_envs = num_envs
         self.num_obs = obs_cfg["num_obs"]
         self.num_privileged_obs = None
@@ -50,10 +53,35 @@ class Go2Env:
 
         # add plain
         self.scene.add_entity(gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
+        platform_urdf_path = "urdf/terrain/platform.urdf"
+
+        self.scene.add_entity(gs.morphs.URDF(
+            file=platform_urdf_path,
+            pos=(0, 0, 0.0),
+            quat=(0, 0, 0, 1),       # 回転なし
+            fixed=True,
+        ))
+
+        # 坂道
+        self.scene.add_entity(gs.morphs.URDF(
+            file=platform_urdf_path,
+            pos=(5.0, 0, 0.5),       # 坂の中心位置
+            quat=(0, -0.0998, 0, 0.995), # Y軸周りに-11.5度傾ける回転
+            fixed=True,
+        ))
+
+        # 【3. ゴールの平地】
+        self.scene.add_entity(gs.morphs.URDF(
+            file=platform_urdf_path,
+            pos=(10.0, 0, 1.0),      # ゴールの平地の位置
+            quat=(0, 0, 0, 1),       # 回転なし
+            fixed=True,
+        ))
 
         # add robot
         self.base_init_pos = torch.tensor(self.env_cfg["base_init_pos"], device=gs.device)
         self.base_init_quat = torch.tensor(self.env_cfg["base_init_quat"], device=gs.device)
+        self.base_euler = torch.zeros((self.num_envs, 3), device=gs.device, dtype=gs.tc_float)
         self.inv_base_init_quat = inv_quat(self.base_init_quat)
         self.robot = self.scene.add_entity(
             gs.morphs.URDF(
@@ -87,6 +115,28 @@ class Go2Env:
             self.reward_functions[name] = getattr(self, "_reward_" + name)
             self.episode_sums[name] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
 
+        # --- トロット報酬関数を追加 ---
+        self.reward_functions["trot_imitation"] = self._reward_trot_imitation
+        self.episode_sums["trot_imitation"] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
+        # trot_imitationのスケールも追加（デフォルト値1.0）
+        if "trot_imitation" not in self.reward_scales:
+            self.reward_scales["trot_imitation"] = 1.0 * self.dt
+        # trot_imitationのスケールも追加
+        if "trot_imitation" not in self.reward_scales:
+            self.reward_scales["trot_imitation"] = 0.0
+        self.reward_scales["trot_imitation"] *= self.dt
+
+        # --- ペース報酬関数を追加 ---
+        self.reward_functions["pace_imitation"] = self._reward_pace_imitation
+        self.episode_sums["pace_imitation"] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
+        # trot_imitationのスケールも追加（デフォルト値1.0）
+        if "pace_imitation" not in self.reward_scales:
+            self.reward_scales["pace_imitation"] = 1.0 * self.dt
+        # trot_imitationのスケールも追加
+        if "pace_imitation" not in self.reward_scales:
+            self.reward_scales["trot_imitation"] = 0.0
+        self.reward_scales["pace_imitation"] *= self.dt
+
         # initialize buffers
         self.base_lin_vel = torch.zeros((self.num_envs, 3), device=gs.device, dtype=gs.tc_float)
         self.base_ang_vel = torch.zeros((self.num_envs, 3), device=gs.device, dtype=gs.tc_float)
@@ -118,6 +168,18 @@ class Go2Env:
         )
         self.extras = dict()  # extra information for logging
         self.extras["observations"] = dict()
+        # --- ここからトロット用 ---
+        self.time = 0.0  # 経過時間を管理
+        # トロット報酬の重み（必要に応じてenv_cfgやreward_cfgに移動可）
+        self.trot_w1 = reward_cfg.get("trot_w1", 1.0)  # 前進速度の重み
+        self.trot_w2 = reward_cfg.get("trot_w2", 1.0)  # お手本誤差の重み
+        self.pace_w1 = reward_cfg.get("pace_w1", 1.0)
+        self.pace_w2 = reward_cfg.get("pace_w2", 1.0)
+        self.bound_w1 = reward_cfg.get("bound_w1", 1.0)
+        self.bound_w2 = reward_cfg.get("bound_w2", 1.0)
+        self.gallop_w1 = reward_cfg.get("gallop_w1", 1.0)
+        self.gallop_w2 = reward_cfg.get("gallop_w2", 1.0)
+        # --- ここまで歩行調整報酬用 ---
 
     def _resample_commands(self, envs_idx):
         self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), gs.device)
@@ -130,6 +192,9 @@ class Go2Env:
         target_dof_pos = exec_actions * self.env_cfg["action_scale"] + self.default_dof_pos
         self.robot.control_dofs_position(target_dof_pos, self.motors_dof_idx)
         self.scene.step()
+
+        # --- トロット用: 時間を進める ---
+        self.time += self.dt
 
         # update buffers
         self.episode_length_buf += 1
@@ -155,6 +220,11 @@ class Go2Env:
         )
         self._resample_commands(envs_idx)
 
+        if self.num_envs == 1 and self.episode_length_buf[0] > 10: # 評価時のみ、最初の数ステップは無視
+            pitch_angle = self.base_euler[0, 1].item()
+            pitch_limit = self.env_cfg["termination_if_pitch_greater_than"]
+            print(f"DEBUG: Current Pitch = {pitch_angle:.2f}, Pitch Limit in Env = {pitch_limit}")
+
         # check termination and reset
         self.reset_buf = self.episode_length_buf > self.max_episode_length
         self.reset_buf |= torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
@@ -168,10 +238,13 @@ class Go2Env:
 
         # compute reward
         self.rew_buf[:] = 0.0
-        for name, reward_func in self.reward_functions.items():
-            rew = reward_func() * self.reward_scales[name]
+        # imitation_modesで指定された模倣報酬をすべて加算
+        for imitation in self.imitation_modes:
+            key = f"{imitation}_imitation"
+            if key in self.reward_functions:
+                rew = self.reward_functions[key]() * self.reward_scales.get(key, 1.0)
             self.rew_buf += rew
-            self.episode_sums[name] += rew
+            self.episode_sums[key] += rew
 
         # compute observations
         self.obs_buf = torch.cat(
@@ -190,6 +263,14 @@ class Go2Env:
         self.last_dof_vel[:] = self.dof_vel[:]
 
         self.extras["observations"]["critic"] = self.obs_buf
+
+        if self.scene.viewer is not None:
+            robot_pos = self.base_pos[0].cpu().numpy()
+            #カメラの位置と注視点をロボットに追随
+            camera_pos = [robot_pos[0] - 3.0, robot_pos[1], robot_pos[2] + 2.0]
+            camera_lookat = [robot_pos[0], robot_pos[1], robot_pos[2]]
+            #かめら設定を更新する
+            self.scene.viewer.set_camera(pos=camera_pos, lookat=camera_lookat)
 
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
 
@@ -219,6 +300,11 @@ class Go2Env:
         self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
         self.robot.set_pos(self.base_pos[envs_idx], zero_velocity=False, envs_idx=envs_idx)
         self.robot.set_quat(self.base_quat[envs_idx], zero_velocity=False, envs_idx=envs_idx)
+        self.base_euler[envs_idx] = quat_to_xyz(
+            transform_quat_by_quat(torch.ones_like(self.base_quat[envs_idx]) * self.inv_base_init_quat, self.base_quat[envs_idx]),
+            rpy=True,
+            degrees=True,
+        )
         self.base_lin_vel[envs_idx] = 0
         self.base_ang_vel[envs_idx] = 0
         self.robot.zero_all_dofs_velocity(envs_idx)
@@ -270,3 +356,98 @@ class Go2Env:
     def _reward_base_height(self):
         # Penalize base height away from target
         return torch.square(self.base_pos[:, 2] - self.reward_cfg["base_height_target"])
+
+    def _get_trot_reference_angles(self):
+        # サイン波でトロット歩行の目標関節角度を生成
+        amplitude = 0.2  # 振幅を小さく（0.5 → 0.2）
+        frequency = 1.0  # 周波数を下げる（1.5 → 1.0 Hz）
+        # 12自由度: FR, FL, RR, RLの順で3関節ずつ
+        # トロット歩行の位相: FR+RL（対角）とFL+RR（対角）が逆位相
+        phase_offsets = torch.tensor([
+            0, 0, 0,         # FR: 0度
+            math.pi, math.pi, math.pi, # FL: 180度（FRと逆位相）
+            math.pi, math.pi, math.pi, # RR: 180度（FRと逆位相）
+            0, 0, 0          # RL: 0度（FRと同位相）
+        ], device=self.device)
+        t = torch.tensor(self.time, device=self.device)
+        # (num_envs, 12)の目標角度
+        trot_ref = amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+        # 複数環境対応
+        return trot_ref.repeat(self.num_envs, 1)
+
+    def _reward_trot_imitation(self):
+        # お手本（サイン波）との誤差をペナルティ
+        reference_angles = self._get_trot_reference_angles()
+        # 実際の関節角度: self.dof_pos (num_envs, 12)
+        imitation_penalty = torch.sum((self.dof_pos - reference_angles) ** 2, dim=1)
+        # 前進速度: x方向
+        forward_vel = self.base_lin_vel[:, 0]
+        # 安定性報酬: 高さが適切な範囲にある場合に報酬
+        base_height = self.base_pos[:, 2]
+        height_reward = torch.exp(-torch.abs(base_height - 0.3) / 0.1)
+        # 報酬 = w1*前進速度 + 安定性報酬 - w2*誤差
+        return self.trot_w1 * forward_vel + height_reward - self.trot_w2 * imitation_penalty
+
+    def _get_pace_reference_angles(self):
+        # パース：同側が同時に動く
+        amplitude = 0.2
+        frequency = 1.0
+        phase_offsets = torch.tensor([
+            0, 0, 0,             # FR: 0度
+            math.pi, math.pi, math.pi, # FL: 180度
+            0, 0, 0,             # RR: 0度
+            math.pi, math.pi, math.pi  # RL: 180度
+        ], device=self.device)
+        t = torch.tensor(self.time, device=self.device)
+        pace_ref = amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+        return pace_ref.repeat(self.num_envs, 1)
+
+    def _reward_pace_imitation(self):
+        reference_angles = self._get_pace_reference_angles()
+        imitation_penalty = torch.sum((self.dof_pos - reference_angles) ** 2, dim = 1)
+        forward_vel = self.base_lin_vel[:, 0] #前進速度
+        height_reward = torch.exp(-torch.abs(self.base_pos[:, 2] - 0.3) / 0.1) #安定性報酬
+        return self.pace_w1 * forward_vel + height_reward - self.pace_w2 * imitation_penalty
+
+    def _get_gallop_reference_angles(self):
+        amplitude = 0.05
+        frequency = 1.0
+        delta = 0.95
+        # ギャロップ: 前脚（FR, FL）: 0度, 後脚（RR, RL）: π
+        phase_offsets = torch.tensor([
+            0, 0, 0,             # FR: 0度
+            0, 0, 0,             # FL: 0度
+            math.pi + delta, math.pi + delta, math.pi + delta, # RR: 180度
+            math.pi + delta, math.pi + delta, math.pi + delta # RL: 180度
+        ], device=self.device)
+        t = torch.tensor(self.time, device=self.device)
+        gallop_ref = amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+        return gallop_ref.repeat(self.num_envs, 1)
+
+    def _reward_gallop_imitation(self):
+        reference_angles = self._get_gallop_reference_angles()
+        imitation_penalty = torch.sum((self.dof_pos - reference_angles) ** 2, dim = 1)
+        forward_vel = self.base_lin_vel[:, 0] #前進速度
+        height_reward = torch.exp(-torch.abs(self.base_pos[:, 2] - 0.3) / 0.1) #安定性報酬
+        return self.gallop_w1 * forward_vel + height_reward - self.gallop_w2 * imitation_penalty
+
+    def _get_bound_reference_angles(self):
+        amplitude = 0.2
+        frequency = 1.0
+        # バウンド: 前脚（FR, FL）: 0度, 後脚（RR, RL）: π
+        phase_offsets = torch.tensor([
+            0, 0, 0,             # FR: 0度
+            0, 0, 0,             # FL: 0度
+            math.pi, math.pi, math.pi, # RR: 180度
+            math.pi, math.pi, math.pi  # RL: 180度
+        ], device=self.device)
+        t = torch.tensor(self.time, device=self.device)
+        bound_ref = amplitude * torch.sin(2 * math.pi * frequency * t + phase_offsets)
+        return bound_ref.repeat(self.num_envs, 1)
+
+    def _reward_bound_imitation(self):
+        reference_angles = self._get_bound_reference_angles()
+        imitation_penalty = torch.sum((self.dof_pos - reference_angles) ** 2, dim = 1)
+        forward_vel = self.base_lin_vel[:, 0] #前進速度
+        height_reward = torch.exp(-torch.abs(self.base_pos[:, 2] - 0.3) / 0.1) #安定性報酬
+        return self.bound_w1 * forward_vel + height_reward - self.bound_w2 * imitation_penalty
